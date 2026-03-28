@@ -3,13 +3,26 @@ import { headers } from "next/headers";
 import db from "@/lib/db";
 import { PageHeader } from "@/components/page-header";
 import { BudgetClient } from "./budget-client";
-import type { IncomeSource, PlannedExpense, SavingsAccount, Debt, BudgetFinancialSettings } from "@/lib/actions/budget";
+import type { IncomeSource, PlannedExpense, SavingsAccount, Debt, BudgetFinancialSettings, Subscription } from "@/lib/actions/budget";
 
 export default async function BudgetPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   const userId = session!.user.id;
 
-  const [incomeRes, expenseRes, savingsRes, debtRes, settingsRes] = await Promise.all([
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      name TEXT NOT NULL,
+      amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      "billingCycle" TEXT NOT NULL DEFAULT 'monthly',
+      category TEXT NOT NULL DEFAULT 'other',
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  const [incomeRes, expenseRes, savingsRes, debtRes, settingsRes, subscriptionRes] = await Promise.all([
     db.query(
       `SELECT id, name, amount, frequency, type, "isActive", "expectedAnnualGrowthRate"
        FROM income_sources WHERE "userId" = $1 ORDER BY "createdAt"`,
@@ -33,6 +46,11 @@ export default async function BudgetPage() {
     db.query(
       `SELECT currency, "inflationRateAssumption", "incomeDropScenario"
        FROM user_financial_settings WHERE "userId" = $1`,
+      [userId]
+    ),
+    db.query(
+      `SELECT id, name, amount, "billingCycle", category
+       FROM subscriptions WHERE "userId" = $1 ORDER BY "createdAt"`,
       [userId]
     ),
   ]);
@@ -61,6 +79,11 @@ export default async function BudgetPage() {
     minimumPayment: parseFloat(r.minimumPayment),
   }));
 
+  const subscriptions: Subscription[] = subscriptionRes.rows.map((r) => ({
+    ...r,
+    amount: parseFloat(r.amount),
+  }));
+
   const financialSettings: BudgetFinancialSettings = settingsRes.rows[0]
     ? {
         currency: settingsRes.rows[0].currency,
@@ -80,6 +103,7 @@ export default async function BudgetPage() {
         expenses={expenses}
         savings={savings}
         debts={debts}
+        subscriptions={subscriptions}
         financialSettings={financialSettings}
       />
     </div>

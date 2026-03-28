@@ -98,6 +98,12 @@ export function SurvivalCalculator({
   const monthsLost = baselineMonths - inflationMonths;
   const isSolvent = baselineMonths === 120;
   const inflationIsSolvent = inflationMonths === 120;
+  const bothSolvent = isSolvent && inflationIsSolvent;
+
+  const monthlySurplus = (parseFloat(income) || 0) - (parseFloat(expenses) || 0);
+  const baseline10yr = data[120]?.baseline ?? 0;
+  const inflation10yr = data[120]?.withInflation ?? 0;
+  const inflationDrag10yr = baseline10yr - inflation10yr;
 
   const monthLabel = (m: number) =>
     m >= 120 ? "10+ yrs" : m >= 12 ? `${Math.floor(m / 12)}y ${m % 12}m` : `${m}mo`;
@@ -148,37 +154,75 @@ export function SurvivalCalculator({
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
-            <p className="text-[10px] text-zinc-500">Runway (no inflation)</p>
-            <p className={`text-xl font-bold ${isSolvent ? "text-emerald-400" : "text-orange-400"}`}>
-              {isSolvent ? "Solvent" : monthLabel(baselineMonths)}
-            </p>
-            <p className="text-[10px] text-zinc-600">at current spend rate</p>
-          </div>
-          <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
-            <p className="text-[10px] text-zinc-500">Runway (with {inflationRate}% inflation)</p>
-            <p className={`text-xl font-bold ${inflationIsSolvent ? "text-emerald-400" : "text-red-400"}`}>
-              {inflationIsSolvent ? "Solvent" : monthLabel(inflationMonths)}
-            </p>
-            <p className="text-[10px] text-zinc-600">expenses grow each year</p>
-          </div>
-          <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
-            <p className="text-[10px] text-zinc-500">Inflation Cost</p>
-            {monthsLost > 0 ? (
-              <>
-                <div className="flex items-center gap-1">
-                  <TrendingDown className="size-4 text-red-400" />
-                  <p className="text-xl font-bold text-red-400">−{monthLabel(monthsLost)}</p>
-                </div>
-                <p className="text-[10px] text-zinc-600">runway lost to inflation</p>
-              </>
-            ) : (
-              <>
-                <p className="text-xl font-bold text-zinc-400">—</p>
-                <p className="text-[10px] text-zinc-600">no impact at these settings</p>
-              </>
-            )}
-          </div>
+          {bothSolvent ? (
+            <>
+              {/* Solvent mode: show growth stats instead of runway */}
+              <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
+                <p className="text-[10px] text-zinc-500">Monthly Surplus</p>
+                <p className={`text-xl font-bold ${monthlySurplus > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                  {monthlySurplus >= 0 ? "+" : ""}{fmt(monthlySurplus)}
+                </p>
+                <p className="text-[10px] text-zinc-600">income minus expenses</p>
+              </div>
+              <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
+                <p className="text-[10px] text-zinc-500">Projected Savings (10 yr)</p>
+                <p className="text-xl font-bold text-blue-400">{fmt(baseline10yr)}</p>
+                <p className="text-[10px] text-zinc-600">at {incomeGrowth}% income growth</p>
+              </div>
+              <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
+                <p className="text-[10px] text-zinc-500">Inflation Drag (10 yr)</p>
+                {inflationDrag10yr > 0 ? (
+                  <>
+                    <div className="flex items-center gap-1">
+                      <TrendingDown className="size-4 text-red-400" />
+                      <p className="text-xl font-bold text-red-400">−{fmt(inflationDrag10yr)}</p>
+                    </div>
+                    <p className="text-[10px] text-zinc-600">less saved vs no inflation</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xl font-bold text-emerald-400">—</p>
+                    <p className="text-[10px] text-zinc-600">no drag at these settings</p>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Burning mode: show runway stats */}
+              <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
+                <p className="text-[10px] text-zinc-500">Runway (no inflation)</p>
+                <p className={`text-xl font-bold ${isSolvent ? "text-emerald-400" : "text-orange-400"}`}>
+                  {isSolvent ? "Solvent" : monthLabel(baselineMonths)}
+                </p>
+                <p className="text-[10px] text-zinc-600">at current spend rate</p>
+              </div>
+              <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
+                <p className="text-[10px] text-zinc-500">Runway (with {inflationRate}% inflation)</p>
+                <p className={`text-xl font-bold ${inflationIsSolvent ? "text-emerald-400" : "text-red-400"}`}>
+                  {inflationIsSolvent ? "Solvent" : monthLabel(inflationMonths)}
+                </p>
+                <p className="text-[10px] text-zinc-600">expenses grow each year</p>
+              </div>
+              <div className="rounded-lg bg-zinc-800/60 p-3 space-y-1">
+                <p className="text-[10px] text-zinc-500">Inflation Cost</p>
+                {monthsLost > 0 ? (
+                  <>
+                    <div className="flex items-center gap-1">
+                      <TrendingDown className="size-4 text-red-400" />
+                      <p className="text-xl font-bold text-red-400">−{monthLabel(monthsLost)}</p>
+                    </div>
+                    <p className="text-[10px] text-zinc-600">runway lost to inflation</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xl font-bold text-zinc-400">—</p>
+                    <p className="text-[10px] text-zinc-600">no impact at these settings</p>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Chart */}
