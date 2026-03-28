@@ -5,51 +5,30 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { PortfolioChart } from "@/components/dashboard/portfolio-chart";
-import { AllocationChart } from "@/components/dashboard/allocation-chart";
-import { TrendingUp, TrendingDown, Wifi, WifiOff } from "lucide-react";
+import { PortfolioChart, type PerformancePoint } from "@/components/dashboard/portfolio-chart";
+import { AllocationChart, buildAllocation } from "@/components/dashboard/allocation-chart";
+import { TrendingUp, TrendingDown, WifiOff } from "lucide-react";
 import { useMarketData } from "@/hooks/use-market-data";
+import { useHoldings } from "@/hooks/use-holdings";
+import { useState, useEffect } from "react";
 
-// ─── Static portfolio data (not from Alpaca) ──────────────────────────────────
-const PORTFOLIO_SUMMARY = {
-  totalValue: 2_847_293,
-  dayPnl: 66_891,
-  dayPnlPct: 2.41,
-  totalReturn: 847_293,
-  totalReturnPct: 42.36,
-  annualizedReturn: 18.7,
-  benchmark: "S&P 500",
-  benchmarkReturn: 14.2,
-};
-
-// Static holdings — shares stay fixed; price/value/dayChange come from Alpaca
-const HOLDINGS_CONFIG = [
-  { ticker: "AAPL", name: "Apple Inc.",               shares: 120 },
-  { ticker: "MSFT", name: "Microsoft Corp.",           shares: 180 },
-  { ticker: "NVDA", name: "NVIDIA Corp.",              shares: 95  },
-  { ticker: "BRK.B", name: "Berkshire Hathaway B",    shares: 210 },
-  { ticker: "VTI",  name: "Vanguard Total Market ETF", shares: 140 },
-  { ticker: "SCHP", name: "Schwab US TIPS ETF",        shares: 500 },
-];
-
-// Market overview rows — price/change come from Alpaca
+// Market overview rows — prices come from Alpaca socket
 const MARKET_CONFIG = [
-  { name: "S&P 500",      ticker: "SPY",     label: "SPY" },
-  { name: "Apple Inc.",       ticker: "AAPL",     label: "AAPL" },
-  { name: "Tesla Inc.", ticker: "TSLA",     label: "TSLA" },
-  { name: "Gold",         ticker: "GLD",     label: "GLD" },
-  { name: "BTC/USD",      ticker: "BTC/USD", label: "BTC/USD" },
+  { name: "S&P 500",   ticker: "SPY",     label: "SPY" },
+  { name: "Apple Inc.", ticker: "AAPL",   label: "AAPL" },
+  { name: "Tesla Inc.", ticker: "TSLA",   label: "TSLA" },
+  { name: "Gold",       ticker: "GLD",    label: "GLD" },
+  { name: "BTC/USD",    ticker: "BTC/USD", label: "BTC/USD" },
 ];
 
 const RISK_METRICS = [
-  { label: "Sharpe Ratio",    value: "1.84", note: "> 1.0 is good" },
-  { label: "Beta (vs S&P)",   value: "0.92", note: "Slightly defensive" },
-  { label: "Max Drawdown",    value: "-14.2%", note: "Last 12 months" },
+  { label: "Sharpe Ratio",      value: "1.84", note: "> 1.0 is good" },
+  { label: "Beta (vs S&P)",     value: "0.92", note: "Slightly defensive" },
+  { label: "Max Drawdown",      value: "-14.2%", note: "Last 12 months" },
   { label: "Volatility (ann.)", value: "16.4%", note: "vs 18.1% benchmark" },
-  { label: "Alpha",           value: "+4.5%", note: "vs S&P 500" },
-  { label: "Sortino Ratio",   value: "2.31", note: "Downside adj. return" },
+  { label: "Alpha",             value: "+4.5%", note: "vs S&P 500" },
+  { label: "Sortino Ratio",     value: "2.31",  note: "Downside adj. return" },
 ];
-// ─────────────────────────────────────────────────────────────────────────────
 
 const fmt = (n: number) =>
   n >= 1_000_000
@@ -59,81 +38,123 @@ const fmt = (n: number) =>
 const fmtPct = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
 
 function DeltaBadge({ value }: { value: number }) {
-  const positive = value >= 0;
+  const pos = value >= 0;
   return (
-    <Badge variant={positive ? "success" : "destructive"} className="gap-1">
-      {positive ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+    <Badge variant={pos ? "success" : "destructive"} className="gap-1">
+      {pos ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
       {fmtPct(value)}
     </Badge>
   );
 }
 
 export default function DashboardPage() {
+  // Live market prices (WebSocket)
   const { quotes, connected, lastUpdate } = useMarketData();
+  // User's holdings + computed portfolio stats
+  const { holdings, quotes: holdingQuotes, stats, loading: holdingsLoading } = useHoldings();
 
-  const {
-    totalValue, dayPnl, dayPnlPct,
-    totalReturn, totalReturnPct,
-    annualizedReturn, benchmark, benchmarkReturn,
-  } = PORTFOLIO_SUMMARY;
-  const alpha = annualizedReturn - benchmarkReturn;
+  // Performance history
+  const [perfData, setPerfData] = useState<PerformancePoint[]>([]);
+  const [perfLoading, setPerfLoading] = useState(true);
+  useEffect(() => {
+    fetch("/api/portfolio/performance")
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) ? setPerfData(d) : [])
+      .catch(() => {})
+      .finally(() => setPerfLoading(false));
+  }, []);
+
+  // Allocation slices derived from current holdings + live prices
+  const allocationData = buildAllocation(holdings, holdingQuotes);
+
+  // SPY day return as benchmark proxy
+  const spyDayPct = quotes["SPY"]?.changePct ?? 0;
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <PageHeader
-        title="Dashboard"
-        description="Portfolio overview & market snapshot"
-      />
+      <PageHeader title="Dashboard" description="Portfolio overview & market snapshot" />
 
       <main className="flex-1 overflow-y-auto p-6 space-y-6">
 
         {/* ── KPI row ── */}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {/* Total value */}
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-zinc-400">Total Value</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-white">{fmt(totalValue)}</p>
-              <div className="flex items-center gap-1.5 mt-1">
-                <DeltaBadge value={dayPnlPct} />
-                <span className="text-xs text-zinc-500">today</span>
-              </div>
+              <p className="text-2xl font-bold text-white">
+                {holdingsLoading ? "—" : stats ? fmt(stats.totalValue) : "No holdings"}
+              </p>
+              {stats && (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <DeltaBadge value={stats.dayPnlPct} />
+                  <span className="text-xs text-zinc-500">today</span>
+                </div>
+              )}
             </CardContent>
           </Card>
 
+          {/* Day P&L */}
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-zinc-400">Day P&amp;L</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-emerald-400">{fmt(dayPnl)}</p>
-              <p className="text-xs text-zinc-500 mt-1">{fmtPct(dayPnlPct)} from yesterday&apos;s close</p>
+              {stats ? (
+                <>
+                  <p className={`text-2xl font-bold ${stats.dayPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {fmt(stats.dayPnl)}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {fmtPct(stats.dayPnlPct)} from yesterday&apos;s close
+                  </p>
+                </>
+              ) : (
+                <p className="text-2xl font-bold text-white">—</p>
+              )}
             </CardContent>
           </Card>
 
+          {/* Total return */}
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-zinc-400">Total Return</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-emerald-400">{fmt(totalReturn)}</p>
-              <p className="text-xs text-zinc-500 mt-1">{fmtPct(totalReturnPct)} since inception</p>
+              {stats ? (
+                <>
+                  <p className={`text-2xl font-bold ${stats.totalReturn >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {fmt(stats.totalReturn)}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1">{fmtPct(stats.totalReturnPct)} since inception</p>
+                </>
+              ) : (
+                <p className="text-2xl font-bold text-white">—</p>
+              )}
             </CardContent>
           </Card>
 
+          {/* Annualized return vs SPY */}
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-zinc-400">Ann. Return vs {benchmark}</CardTitle>
+              <CardTitle className="text-xs font-medium text-zinc-400">Ann. Return vs SPY</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-blue-400">{fmtPct(annualizedReturn)}</p>
-              <p className="text-xs text-zinc-500 mt-1">
-                <span className={alpha >= 0 ? "text-emerald-400" : "text-red-400"}>
-                  {fmtPct(alpha)} alpha
-                </span>
-                {" "}vs {fmtPct(benchmarkReturn)} benchmark
-              </p>
+              {stats ? (
+                <>
+                  <p className="text-2xl font-bold text-blue-400">{fmtPct(stats.annualizedReturn)}</p>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    <span className={stats.annualizedReturn >= spyDayPct ? "text-emerald-400" : "text-red-400"}>
+                      {fmtPct(stats.annualizedReturn - spyDayPct)} alpha
+                    </span>
+                    {" "}vs SPY {fmtPct(spyDayPct)} today
+                  </p>
+                </>
+              ) : (
+                <p className="text-2xl font-bold text-white">—</p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -145,16 +166,15 @@ export default function DashboardPage() {
               <CardTitle className="text-sm font-semibold text-white">Portfolio Performance (1Y)</CardTitle>
             </CardHeader>
             <CardContent>
-              <PortfolioChart />
+              <PortfolioChart data={perfData} loading={perfLoading} />
             </CardContent>
           </Card>
-
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-white">Asset Allocation</CardTitle>
             </CardHeader>
             <CardContent>
-              <AllocationChart />
+              <AllocationChart data={allocationData} loading={holdingsLoading} />
             </CardContent>
           </Card>
         </div>
@@ -162,55 +182,68 @@ export default function DashboardPage() {
         {/* ── Holdings + Market ── */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
 
-          {/* Holdings table */}
+          {/* Holdings from DB */}
           <Card className="bg-zinc-900 border-zinc-800 lg:col-span-2">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold text-white">Top Holdings</CardTitle>
               <LiveIndicator connected={connected} lastUpdate={lastUpdate} />
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-800">
-                    <th className="px-6 py-2 text-left text-xs font-medium text-zinc-500">Asset</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Shares</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Price</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Value</th>
-                    <th className="px-6 py-2 text-right text-xs font-medium text-zinc-500">Day Chg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {HOLDINGS_CONFIG.map((h, i) => {
-                    const q = quotes[h.ticker];
-                    const price = q?.price ?? 0;
-                    const value = price * h.shares;
-                    const changePct = q?.changePct ?? 0;
-                    return (
-                      <tr
-                        key={h.ticker}
-                        className={i < HOLDINGS_CONFIG.length - 1 ? "border-b border-zinc-800/60" : ""}
-                      >
-                        <td className="px-6 py-3">
-                          <p className="font-mono text-xs font-semibold text-white">{h.ticker}</p>
-                          <p className="text-xs text-zinc-500">{h.name}</p>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">{h.shares}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">
-                          {price > 0 ? `$${price.toFixed(2)}` : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">
-                          {value > 0 ? fmt(value) : "—"}
-                        </td>
-                        <td className="px-6 py-3 text-right">
-                          <span className={changePct >= 0 ? "text-xs font-medium text-emerald-400" : "text-xs font-medium text-red-400"}>
-                            {q ? fmtPct(changePct) : "—"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              {holdingsLoading ? (
+                <div className="py-8 text-center text-xs text-zinc-600">Loading…</div>
+              ) : holdings.length === 0 ? (
+                <div className="py-8 text-center text-xs text-zinc-600">
+                  Add positions on the Portfolio page to see them here.
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-800">
+                      <th className="px-6 py-2 text-left  text-xs font-medium text-zinc-500">Asset</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Shares</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Price</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Value</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Weight</th>
+                      <th className="px-6 py-2 text-right text-xs font-medium text-zinc-500">Day Chg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdings.map((h, i) => {
+                      const q = holdingQuotes[h.ticker];
+                      const price = q?.price ?? 0;
+                      const value = price * Number(h.shares);
+                      const weight = stats?.totalValue && value > 0
+                        ? (value / stats.totalValue) * 100 : 0;
+                      return (
+                        <tr key={h.id} className={i < holdings.length - 1 ? "border-b border-zinc-800/60" : ""}>
+                          <td className="px-6 py-3">
+                            <p className="font-mono text-xs font-semibold text-white">{h.ticker}</p>
+                            <p className="text-xs text-zinc-500">{h.name}</p>
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">{Number(h.shares)}</td>
+                          <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">
+                            {price > 0 ? `$${price.toFixed(2)}` : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">
+                            {value > 0 ? fmt(value) : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="font-mono text-xs text-zinc-300">{weight.toFixed(1)}%</span>
+                              <Progress value={weight} className="w-14 h-1" />
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 text-right">
+                            <span className={`text-xs font-medium ${(q?.changePct ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                              {q ? fmtPct(q.changePct) : "—"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </CardContent>
           </Card>
 
@@ -282,7 +315,7 @@ function LiveIndicator({ connected, lastUpdate }: { connected: boolean; lastUpda
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
           <span className="text-[10px] text-zinc-500">
-            {lastUpdate ? `${lastUpdate.toLocaleTimeString()}` : "live"}
+            {lastUpdate ? lastUpdate.toLocaleTimeString() : "live"}
           </span>
         </>
       ) : (
