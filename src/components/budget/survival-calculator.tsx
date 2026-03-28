@@ -5,7 +5,6 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Referenc
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, TrendingDown } from "lucide-react";
 
 interface RunwayPoint {
@@ -63,12 +62,26 @@ function computeRunway(
 const fmt = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${n.toLocaleString()}`;
 
-export function SurvivalCalculator() {
-  const [savings, setSavings] = useState("45000");
-  const [income, setIncome] = useState("7500");
-  const [expenses, setExpenses] = useState("4350");
-  const [inflationRate, setInflationRate] = useState("3.2");
-  const [incomeGrowth, setIncomeGrowth] = useState("2.0");
+interface SurvivalCalculatorProps {
+  initialSavings?: number;
+  initialIncome?: number;
+  initialExpenses?: number;
+  initialInflationRate?: number;
+  initialIncomeGrowth?: number;
+}
+
+export function SurvivalCalculator({
+  initialSavings = 45000,
+  initialIncome = 7500,
+  initialExpenses = 4350,
+  initialInflationRate = 3.2,
+  initialIncomeGrowth = 2,
+}: SurvivalCalculatorProps = {}) {
+  const [savings, setSavings] = useState(String(initialSavings));
+  const [income, setIncome] = useState(String(initialIncome));
+  const [expenses, setExpenses] = useState(String(initialExpenses));
+  const [inflationRate, setInflationRate] = useState(String(initialInflationRate));
+  const [incomeGrowth, setIncomeGrowth] = useState(String(initialIncomeGrowth));
   const [jobLoss, setJobLoss] = useState(false);
 
   const { data, baselineMonths, inflationMonths } = useMemo(() => {
