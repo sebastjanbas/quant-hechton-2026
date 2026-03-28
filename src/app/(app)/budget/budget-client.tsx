@@ -14,18 +14,17 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { SurvivalCalculator } from "@/components/budget/survival-calculator";
-import {
-  Plus, Pencil, Trash2, Flame,
-  TrendingDown, TrendingUp,
-} from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import {
   createIncomeSource, updateIncomeSource, deleteIncomeSource,
   createPlannedExpense, updatePlannedExpense, deletePlannedExpense,
   createSavingsAccount, updateSavingsAccount, deleteSavingsAccount,
   createDebt, updateDebt, deleteDebt,
+  createSubscription, updateSubscription, deleteSubscription,
   type IncomeSource, type PlannedExpense, type SavingsAccount, type Debt,
-  type BudgetFinancialSettings,
+  type Subscription, type BudgetFinancialSettings,
 } from "@/lib/actions/budget";
+import { POPULAR_SERVICES } from "@/lib/subscriptions-data";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -34,16 +33,12 @@ const INCOME_TYPES = ["salary", "freelance", "rental", "dividends", "other"];
 const INFLATION_SENSITIVITIES = ["high", "medium", "low", "none"];
 const SAVINGS_TYPES = ["emergency_fund", "savings", "investment", "other"];
 const DEBT_TYPES = ["mortgage", "credit_card", "student_loan", "auto", "personal", "other"];
-const CATEGORY_COLORS = [
-  "#3b82f6","#f59e0b","#8b5cf6","#06b6d4","#10b981",
-  "#f97316","#ec4899","#71717a","#a78bfa","#34d399",
-];
-
 type DialogMode =
   | "add-income" | "edit-income"
   | "add-expense" | "edit-expense"
   | "add-savings" | "edit-savings"
-  | "add-debt" | "edit-debt";
+  | "add-debt" | "edit-debt"
+  | "add-subscription" | "edit-subscription";
 
 // ── Module-level helpers ──────────────────────────────────────────────────────
 
@@ -66,6 +61,8 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const SENSITIVITY_COLOR: Record<string, string> = {
   high: "text-red-400", medium: "text-orange-400", low: "text-emerald-400", none: "text-zinc-500",
 };
@@ -80,12 +77,13 @@ interface Props {
   expenses: PlannedExpense[];
   savings: SavingsAccount[];
   debts: Debt[];
+  subscriptions: Subscription[];
   financialSettings: BudgetFinancialSettings;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function BudgetClient({ incomeSources, expenses, savings, debts, financialSettings }: Props) {
+export function BudgetClient({ incomeSources, expenses, savings, debts, subscriptions, financialSettings }: Props) {
   const router = useRouter();
 
   // Dialog state
@@ -94,6 +92,10 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
   const [formData, setFormData] = useState<Record<string, string | boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+
+  // Subscription search combobox state
+  const [subSearch, setSubSearch] = useState("");
+  const [subDropdownOpen, setSubDropdownOpen] = useState(false);
 
   function setField(key: string, value: string | boolean) {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -118,6 +120,8 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
     setEditingId(null);
     setFormData({});
     setDialogError(null);
+    setSubSearch("");
+    setSubDropdownOpen(false);
   }
 
   async function handleSave() {
@@ -155,6 +159,14 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
         targetAmount: f.targetAmount ? parseFloat(String(f.targetAmount)) : null,
       };
       result = editingId ? await updateSavingsAccount(editingId, data) : await createSavingsAccount(data);
+    } else if (dialogMode === "add-subscription" || dialogMode === "edit-subscription") {
+      const data = {
+        name: String(f.name ?? ""),
+        amount: parseFloat(String(f.amount)) || 0,
+        billingCycle: String(f.billingCycle ?? "monthly"),
+        category: String(f.category ?? ""),
+      };
+      result = editingId ? await updateSubscription(editingId, data) : await createSubscription(data);
     } else {
       const data = {
         name: String(f.name ?? ""),
@@ -192,8 +204,11 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
     .filter((s) => s.isActive)
     .reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
 
+  const totalMonthlySubscriptions = subscriptions
+    .reduce((sum, s) => sum + toMonthly(s.amount, s.billingCycle), 0);
+
   const totalMonthlyExpenses = expenses
-    .reduce((sum, e) => sum + toMonthly(e.amount, e.frequency), 0);
+    .reduce((sum, e) => sum + toMonthly(e.amount, e.frequency), 0) + totalMonthlySubscriptions;
 
   const surplus = totalMonthlyIncome - totalMonthlyExpenses;
   const totalSavings = savings.reduce((sum, a) => sum + a.balance, 0);
@@ -225,7 +240,7 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-orange-400">{fmt(totalMonthlyExpenses)}</p>
-            <p className="text-xs text-zinc-500 mt-1">{expenses.length} categories</p>
+            <p className="text-xs text-zinc-500 mt-1">{expenses.length} expenses · {subscriptions.length} subscriptions</p>
           </CardContent>
         </Card>
         <Card className="bg-zinc-900 border-zinc-800">
@@ -275,7 +290,6 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                   <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Amount</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-zinc-500">Frequency</th>
                   <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Monthly</th>
-                  <th className="px-4 py-2 text-center text-xs font-medium text-zinc-500">Growth</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-zinc-500">Active</th>
                   <th className="px-6 py-2" />
                 </tr>
@@ -284,13 +298,10 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                 {incomeSources.map((s, i) => (
                   <tr key={s.id} className={i < incomeSources.length - 1 ? "border-b border-zinc-800/60" : ""}>
                     <td className="px-6 py-3 text-sm text-white font-medium">{s.name}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className="text-[10px] py-0">{s.type}</Badge>
-                    </td>
+                    <td className="px-4 py-3 text-xs text-zinc-400">{cap(s.type)}</td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">{fmt(s.amount)}</td>
                     <td className="px-4 py-3 text-xs text-zinc-400">{s.frequency}</td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-emerald-400">{fmt(toMonthly(s.amount, s.frequency))}</td>
-                    <td className="px-4 py-3 text-center font-mono text-xs text-zinc-400">{s.expectedAnnualGrowthRate}%</td>
                     <td className="px-4 py-3 text-center">
                       <span className={`text-xs font-medium ${s.isActive ? "text-emerald-400" : "text-zinc-600"}`}>
                         {s.isActive ? "Yes" : "No"}
@@ -340,7 +351,6 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                   <th className="px-4 py-2 text-left text-xs font-medium text-zinc-500">Frequency</th>
                   <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Monthly</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-zinc-500">Essential</th>
-                  <th className="px-4 py-2 text-center text-xs font-medium text-zinc-500">Inflation</th>
                   <th className="px-6 py-2" />
                 </tr>
               </thead>
@@ -354,14 +364,6 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                     <td className="px-4 py-3 text-right font-mono text-xs text-orange-400">{fmt(toMonthly(e.amount, e.frequency))}</td>
                     <td className="px-4 py-3 text-center">
                       {e.isEssential && <span className="text-xs text-blue-400">Essential</span>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        {e.inflationSensitivity === "high" && <Flame className="size-3 text-red-400" />}
-                        <Badge variant={SENSITIVITY_BADGE[e.inflationSensitivity] ?? "outline"} className="text-[10px] py-0">
-                          {e.inflationSensitivity}
-                        </Badge>
-                      </div>
                     </td>
                     <td className="px-6 py-3">
                       <div className="flex items-center justify-end gap-2">
@@ -379,6 +381,69 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                 ))}
               </tbody>
             </table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Subscriptions ── */}
+      <Card className="bg-zinc-900 border-zinc-800">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold text-white">Subscriptions</CardTitle>
+            <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs"
+              onClick={() => { setSubSearch(""); openAdd("add-subscription", { name: "", amount: "", billingCycle: "monthly", category: "" }); }}>
+              <Plus className="size-3" /> Add
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {subscriptions.length === 0 ? (
+            <p className="px-6 py-4 text-sm text-zinc-500">No subscriptions yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <th className="px-6 py-2 text-left text-xs font-medium text-zinc-500">Name</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-zinc-500">Category</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Amount</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-zinc-500">Cycle</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-zinc-500">Monthly</th>
+                  <th className="px-6 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {subscriptions.map((s, i) => (
+                  <tr key={s.id} className={i < subscriptions.length - 1 ? "border-b border-zinc-800/60" : ""}>
+                    <td className="px-6 py-3 text-sm text-white font-medium">{s.name}</td>
+                    <td className="px-4 py-3 text-xs text-zinc-400">{s.category}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-zinc-300">${s.amount.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-xs text-zinc-400">{cap(s.billingCycle)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-orange-400">{fmt(toMonthly(s.amount, s.billingCycle))}</td>
+                    <td className="px-6 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => { setSubSearch(s.name); openEdit("edit-subscription", s.id, { name: s.name, amount: String(s.amount), billingCycle: s.billingCycle, category: s.category }); }}
+                          className="text-zinc-600 hover:text-zinc-300 transition-colors">
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button onClick={() => handleDelete(deleteSubscription, s.id, s.name)}
+                          className="text-zinc-600 hover:text-red-400 transition-colors">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {subscriptions.length > 0 && (
+            <>
+              <Separator className="bg-zinc-800" />
+              <div className="flex justify-between text-xs px-6 py-3">
+                <span className="text-zinc-500">Total monthly subscriptions</span>
+                <span className="font-mono font-semibold text-orange-400">{fmt(totalMonthlySubscriptions)}</span>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -407,7 +472,7 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-white">{a.name}</p>
-                      <p className="text-[10px] text-zinc-500">{a.type.replace("_", " ")}</p>
+                      <p className="text-[10px] text-zinc-500">{cap(a.type.replace("_", " "))}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <p className="font-mono text-sm font-bold text-emerald-400">{fmt(a.balance)}</p>
@@ -466,7 +531,7 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-white">{d.name}</p>
-                    <p className="text-[10px] text-zinc-500">{d.type.replace("_", " ")} · {d.interestRate}% APR · min {fmt(d.minimumPayment)}/{d.paymentFrequency}</p>
+                    <p className="text-[10px] text-zinc-500">{cap(d.type.replace("_", " "))} · {d.interestRate}% APR · min {fmt(d.minimumPayment)}/{d.paymentFrequency}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="font-mono text-sm font-bold text-red-400">{fmt(d.balance)}</p>
@@ -610,6 +675,7 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
               {dialogMode?.includes("income") ? "Income Source"
                 : dialogMode?.includes("expense") ? "Expense"
                 : dialogMode?.includes("savings") ? "Savings Account"
+                : dialogMode?.includes("subscription") ? "Subscription"
                 : "Debt"}
             </DialogTitle>
           </DialogHeader>
@@ -623,17 +689,17 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                     placeholder="e.g. Salary" className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Amount ($)">
-                  <Input type="number" value={String(formData.amount ?? "")} onChange={(e) => setField("amount", e.target.value)}
+                  <Input type="number" step="100" value={String(formData.amount ?? "")} onChange={(e) => setField("amount", e.target.value)}
                     className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Type">
                   <Select value={String(formData.type ?? "salary")} onChange={(e) => setField("type", e.target.value)} className="border-zinc-700">
-                    {INCOME_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    {INCOME_TYPES.map((t) => <option key={t} value={t}>{cap(t)}</option>)}
                   </Select>
                 </FieldRow>
                 <FieldRow label="Frequency">
                   <Select value={String(formData.frequency ?? "monthly")} onChange={(e) => setField("frequency", e.target.value)} className="border-zinc-700">
-                    {FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
+                    {FREQUENCIES.map((f) => <option key={f} value={f}>{cap(f)}</option>)}
                   </Select>
                 </FieldRow>
                 <FieldRow label="Annual Growth Rate (%)">
@@ -658,7 +724,7 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                     placeholder="e.g. Rent" className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Amount ($)">
-                  <Input type="number" value={String(formData.amount ?? "")} onChange={(e) => setField("amount", e.target.value)}
+                  <Input type="number" step="100" value={String(formData.amount ?? "")} onChange={(e) => setField("amount", e.target.value)}
                     className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Category">
@@ -667,12 +733,12 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                 </FieldRow>
                 <FieldRow label="Frequency">
                   <Select value={String(formData.frequency ?? "monthly")} onChange={(e) => setField("frequency", e.target.value)} className="border-zinc-700">
-                    {FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
+                    {FREQUENCIES.map((f) => <option key={f} value={f}>{cap(f)}</option>)}
                   </Select>
                 </FieldRow>
                 <FieldRow label="Inflation Sensitivity">
                   <Select value={String(formData.inflationSensitivity ?? "medium")} onChange={(e) => setField("inflationSensitivity", e.target.value)} className="border-zinc-700">
-                    {INFLATION_SENSITIVITIES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {INFLATION_SENSITIVITIES.map((s) => <option key={s} value={s}>{cap(s)}</option>)}
                   </Select>
                 </FieldRow>
                 <FieldRow label="Essential?">
@@ -694,19 +760,87 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                 </FieldRow>
                 <FieldRow label="Type">
                   <Select value={String(formData.type ?? "savings")} onChange={(e) => setField("type", e.target.value)} className="border-zinc-700">
-                    {SAVINGS_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
+                    {SAVINGS_TYPES.map((t) => <option key={t} value={t}>{cap(t.replace("_", " "))}</option>)}
                   </Select>
                 </FieldRow>
                 <FieldRow label="Current Balance ($)">
-                  <Input type="number" value={String(formData.balance ?? "")} onChange={(e) => setField("balance", e.target.value)}
+                  <Input type="number" step="100" value={String(formData.balance ?? "")} onChange={(e) => setField("balance", e.target.value)}
                     className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Target Amount ($) — optional">
-                  <Input type="number" value={String(formData.targetAmount ?? "")} onChange={(e) => setField("targetAmount", e.target.value)}
+                  <Input type="number" step="100" value={String(formData.targetAmount ?? "")} onChange={(e) => setField("targetAmount", e.target.value)}
                     className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
               </div>
             )}
+
+            {/* Subscription form */}
+            {(dialogMode === "add-subscription" || dialogMode === "edit-subscription") && (() => {
+              const filtered = subSearch.length > 0
+                ? POPULAR_SERVICES.filter((s) => s.name.toLowerCase().includes(subSearch.toLowerCase())).slice(0, 8)
+                : [];
+              return (
+                <div className="space-y-3">
+                  <FieldRow label="Search service">
+                    <div className="relative">
+                      <Input
+                        value={subSearch}
+                        onChange={(e) => { setSubSearch(e.target.value); setSubDropdownOpen(true); }}
+                        onFocus={() => setSubDropdownOpen(true)}
+                        onBlur={() => setTimeout(() => setSubDropdownOpen(false), 150)}
+                        placeholder="e.g. Netflix, Spotify…"
+                        className="bg-zinc-800 border-zinc-700 text-white"
+                      />
+                      {subDropdownOpen && filtered.length > 0 && (
+                        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-md shadow-lg max-h-52 overflow-y-auto">
+                          {filtered.map((preset) => (
+                            <button
+                              key={preset.name}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setField("name", preset.name);
+                                setField("amount", String(preset.amount));
+                                setField("billingCycle", preset.billingCycle);
+                                setField("category", preset.category);
+                                setSubSearch(preset.name);
+                                setSubDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-700 flex items-center justify-between gap-4"
+                            >
+                              <span className="text-white truncate">{preset.name}</span>
+                              <span className="text-zinc-400 text-xs shrink-0">
+                                {preset.category} · ${preset.amount}/{preset.billingCycle === "monthly" ? "mo" : "yr"}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </FieldRow>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FieldRow label="Name">
+                      <Input value={String(formData.name ?? "")} onChange={(e) => setField("name", e.target.value)}
+                        placeholder="Custom name" className="bg-zinc-800 border-zinc-700 text-white" />
+                    </FieldRow>
+                    <FieldRow label="Category">
+                      <Input value={String(formData.category ?? "")} onChange={(e) => setField("category", e.target.value)}
+                        placeholder="e.g. Streaming" className="bg-zinc-800 border-zinc-700 text-white" />
+                    </FieldRow>
+                    <FieldRow label="Amount ($)">
+                      <Input type="number" step="0.01" value={String(formData.amount ?? "")} onChange={(e) => setField("amount", e.target.value)}
+                        className="bg-zinc-800 border-zinc-700 text-white" />
+                    </FieldRow>
+                    <FieldRow label="Billing Cycle">
+                      <Select value={String(formData.billingCycle ?? "monthly")} onChange={(e) => setField("billingCycle", e.target.value)} className="border-zinc-700">
+                        <option value="monthly">Monthly</option>
+                        <option value="annual">Annual</option>
+                      </Select>
+                    </FieldRow>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Debt form */}
             {(dialogMode === "add-debt" || dialogMode === "edit-debt") && (
@@ -717,11 +851,11 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                 </FieldRow>
                 <FieldRow label="Type">
                   <Select value={String(formData.type ?? "other")} onChange={(e) => setField("type", e.target.value)} className="border-zinc-700">
-                    {DEBT_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
+                    {DEBT_TYPES.map((t) => <option key={t} value={t}>{cap(t.replace("_", " "))}</option>)}
                   </Select>
                 </FieldRow>
                 <FieldRow label="Balance ($)">
-                  <Input type="number" value={String(formData.balance ?? "")} onChange={(e) => setField("balance", e.target.value)}
+                  <Input type="number" step="100" value={String(formData.balance ?? "")} onChange={(e) => setField("balance", e.target.value)}
                     className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Interest Rate (% APR)">
@@ -729,7 +863,7 @@ export function BudgetClient({ incomeSources, expenses, savings, debts, financia
                     className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Minimum Payment ($)">
-                  <Input type="number" value={String(formData.minimumPayment ?? "")} onChange={(e) => setField("minimumPayment", e.target.value)}
+                  <Input type="number" step="100" value={String(formData.minimumPayment ?? "")} onChange={(e) => setField("minimumPayment", e.target.value)}
                     className="bg-zinc-800 border-zinc-700 text-white" />
                 </FieldRow>
                 <FieldRow label="Payment Frequency">

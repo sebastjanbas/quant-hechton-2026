@@ -57,6 +57,14 @@ export interface BudgetFinancialSettings {
   incomeDropScenario: number;
 }
 
+export interface Subscription {
+  id: string;
+  name: string;
+  amount: number;
+  billingCycle: string;
+  category: string;
+}
+
 // ── Income Sources ─────────────────────────────────────────────────────────────
 
 export async function createIncomeSource(
@@ -256,5 +264,56 @@ export async function deleteDebt(id: string): Promise<ActionResult> {
   } catch (e) {
     console.error(e);
     return { success: false, error: "Failed to delete debt." };
+  }
+}
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+export async function createSubscription(
+  data: Omit<Subscription, "id">
+): Promise<ActionResult> {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: "Unauthorized" };
+  try {
+    await db.query(
+      `INSERT INTO subscriptions (id, "userId", name, amount, "billingCycle", category)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [crypto.randomUUID(), userId, data.name, data.amount, data.billingCycle, data.category]
+    );
+    return { success: true };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: "Failed to create subscription." };
+  }
+}
+
+export async function updateSubscription(
+  id: string,
+  data: Omit<Subscription, "id">
+): Promise<ActionResult> {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: "Unauthorized" };
+  try {
+    await db.query(
+      `UPDATE subscriptions SET name=$1, amount=$2, "billingCycle"=$3, category=$4, "updatedAt"=CURRENT_TIMESTAMP
+       WHERE id=$5 AND "userId"=$6`,
+      [data.name, data.amount, data.billingCycle, data.category, id, userId]
+    );
+    return { success: true };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: "Failed to update subscription." };
+  }
+}
+
+export async function deleteSubscription(id: string): Promise<ActionResult> {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: "Unauthorized" };
+  try {
+    await db.query(`DELETE FROM subscriptions WHERE id=$1 AND "userId"=$2`, [id, userId]);
+    return { success: true };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: "Failed to delete subscription." };
   }
 }
