@@ -10,10 +10,12 @@ import {
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {IconBox} from "@tabler/icons-react";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Budget", href: "/budget", icon: Wallet },
+  { label: "Portfolio", href: "/portfolio", icon: IconBox },
   { label: "Inflation", href: "/inflation", icon: Flame },
   { label: "Risk", href: "/risk", icon: ShieldAlert },
 ];
