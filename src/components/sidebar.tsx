@@ -9,12 +9,14 @@ import {
   Flame,
   LineChart,
   ShieldAlert,
+  Wallet,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Budget", href: "/budget", icon: Wallet },
   { label: "Portfolio", href: "/portfolio", icon: BarChart3 },
   { label: "Equities", href: "/equities", icon: TrendingUp },
   { label: "Fixed Income", href: "/fixed-income", icon: LineChart },
