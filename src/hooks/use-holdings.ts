@@ -84,7 +84,9 @@ export function useHoldings() {
       ? Math.max(1, Math.floor((Date.now() - oldestDate.getTime()) / 86_400_000))
       : 365;
     const annualizedReturn =
-      totalCost > 0 ? ((1 + totalReturn / totalCost) ** (365 / daysHeld) - 1) * 100 : 0;
+      totalCost > 0 && daysHeld >= 30
+        ? ((1 + totalReturn / totalCost) ** (365 / daysHeld) - 1) * 100
+        : null;
 
     return { totalValue, totalCost, totalReturn, totalReturnPct, dayPnl, dayPnlPct, annualizedReturn };
   })();

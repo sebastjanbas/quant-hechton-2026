@@ -56,7 +56,7 @@ export default async function RiskSimulationPage() {
 
   const userId = session.user.id;
 
-  const [holdingsRes, incomeRes, expensesRes, savingsRes, settingsRes] = await Promise.all([
+  const [holdingsRes, incomeRes, expensesRes, savingsRes, settingsRes, subscriptionsRes, debtsRes] = await Promise.all([
     db.query(
       `SELECT id, ticker, name, shares, "costBasisPerShare", "assetClass", "createdAt" FROM holdings WHERE "userId" = $1`,
       [userId]
@@ -75,6 +75,14 @@ export default async function RiskSimulationPage() {
     ),
     db.query(
       `SELECT "inflationRateAssumption", "incomeDropScenario" FROM user_financial_settings WHERE "userId" = $1`,
+      [userId]
+    ),
+    db.query(
+      `SELECT amount, "billingCycle" FROM subscriptions WHERE "userId" = $1`,
+      [userId]
+    ),
+    db.query(
+      `SELECT id, name, balance, "interestRate", "minimumPayment", "paymentFrequency" FROM debts WHERE "userId" = $1`,
       [userId]
     ),
   ]);
@@ -104,6 +112,18 @@ export default async function RiskSimulationPage() {
 
   const settings = settingsRes.rows[0] ?? { inflationRateAssumption: 3, incomeDropScenario: 100 };
 
+  function toMonthly(amount: number, billingCycle: string): number {
+    if (billingCycle === "annual") return amount / 12;
+    if (billingCycle === "weekly") return (amount * 52) / 12;
+    if (billingCycle === "bi-weekly") return (amount * 26) / 12;
+    return amount; // monthly default
+  }
+
+  const subscriptionMonthlyTotal = subscriptionsRes.rows.reduce(
+    (sum: number, s: any) => sum + toMonthly(Number(s.amount), s.billingCycle),
+    0
+  );
+
   return (
     <SimulationClient
       holdings={holdings}
@@ -117,6 +137,20 @@ export default async function RiskSimulationPage() {
       inflationRate={Number(settings.inflationRateAssumption)}
       portfolioMarketValue={Math.round(portfolioMarketValue)}
       totalSavings={Math.round(totalSavings)}
+      subscriptionMonthlyTotal={Math.round(subscriptionMonthlyTotal)}
+      debts={debtsRes.rows.map((d) => ({
+        id: d.id,
+        name: d.name,
+        balance: Number(d.balance),
+        annualRate: Number(d.interestRate) / 100,
+        monthlyPayment: d.paymentFrequency === "monthly"
+          ? Number(d.minimumPayment)
+          : d.paymentFrequency === "bi-weekly"
+          ? (Number(d.minimumPayment) * 26) / 12
+          : d.paymentFrequency === "weekly"
+          ? (Number(d.minimumPayment) * 52) / 12
+          : Number(d.minimumPayment) / 12,
+      }))}
     />
   );
 }

@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
 import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle } from "lucide-react";
-import {BandPoint, Expense, Holding, IncomeSource, SavingsAccount, SimConfig, SimResult} from "@/lib/types";
+import { BandPoint, Expense, Holding, IncomeSource, SavingsAccount, SimConfig, SimDebt, SimResult } from "@/lib/types";
 
 interface Props {
   holdings: Holding[];
@@ -29,6 +29,8 @@ interface Props {
   inflationRate: number;
   portfolioMarketValue: number;
   totalSavings: number;
+  subscriptionMonthlyTotal: number;
+  debts: SimDebt[];
 }
 
 
@@ -69,6 +71,7 @@ function runMonteCarlo(cfg: SimConfig): SimResult {
     monthlyExpenses,
     incomeGrowthRate,
     surplusInvestPct,
+    debts,
     timeHorizonYears,
     numSimulations,
     includeCashFlows,
@@ -77,11 +80,24 @@ function runMonteCarlo(cfg: SimConfig): SimResult {
 
   const steps = timeHorizonYears * 12;
   const dt = 1 / 12;
-  // GBM parameters for stock portfolio
   const monthlyLogDrift = (annualDrift - 0.5 * annualVolatility ** 2) * dt;
   const monthlyLogVol = annualVolatility * Math.sqrt(dt);
-  // Fixed monthly growth factor for savings (e.g. HYSA)
   const monthlySavingsGrowth = Math.pow(1 + annualSavingsRate, dt) - 1;
+
+  // Pre-compute deterministic debt payment schedule (same across all simulations)
+  const debtSchedule: number[] = [];
+  const debtBalances = debts.map((d) => d.balance);
+  for (let month = 1; month <= steps; month++) {
+    let totalPayment = 0;
+    for (let i = 0; i < debts.length; i++) {
+      if (debtBalances[i] > 0) {
+        const interest = debtBalances[i] * (debts[i].annualRate / 12);
+        debtBalances[i] = Math.max(0, debtBalances[i] + interest - debts[i].monthlyPayment);
+        totalPayment += debts[i].monthlyPayment;
+      }
+    }
+    debtSchedule.push(totalPayment);
+  }
 
   const yearlySnapshots: number[][] = Array.from({ length: timeHorizonYears + 1 }, () => []);
   const finalValues: number[] = [];
@@ -92,19 +108,16 @@ function runMonteCarlo(cfg: SimConfig): SimResult {
     yearlySnapshots[0].push(stocks + savings);
 
     for (let month = 1; month <= steps; month++) {
-      // Stocks: GBM — volatile, market-driven
       const z = normalRandom();
       stocks *= Math.exp(monthlyLogDrift + monthlyLogVol * z);
-
-      // Savings: fixed compound interest — no volatility
       savings *= 1 + monthlySavingsGrowth;
 
-      // Net cash flows go into the investment portfolio (new contributions)
       if (includeCashFlows) {
         const years = (month - 1) / 12;
         const inflatedExpenses = monthlyExpenses * Math.pow(1 + annualInflationRate, years);
         const grownIncome = monthlyIncome * Math.pow(1 + incomeGrowthRate, years);
-        const surplus = grownIncome - inflatedExpenses;
+        const debtPayment = debtSchedule[month - 1];
+        const surplus = grownIncome - inflatedExpenses - debtPayment;
         stocks  += surplus * surplusInvestPct;
         savings += surplus * (1 - surplusInvestPct);
       }
@@ -190,9 +203,9 @@ const SCENARIOS = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function SimulationClient({ incomeSources, expenses, inflationRate, portfolioMarketValue, totalSavings }: Props) {
+export function SimulationClient({ incomeSources, expenses, inflationRate, portfolioMarketValue, totalSavings, subscriptionMonthlyTotal, debts: initialDebts }: Props) {
   const defaultMonthlyIncome = incomeSources.reduce((s, src) => s + toMonthly(src.amount, src.frequency), 0);
-  const defaultMonthlyExpenses = expenses.reduce((s, e) => s + toMonthly(e.amount, e.frequency), 0);
+  const defaultMonthlyExpenses = expenses.reduce((s, e) => s + toMonthly(e.amount, e.frequency), 0) + subscriptionMonthlyTotal;
   const avgIncomeGrowth =
     incomeSources.length > 0
       ? incomeSources.reduce((s, src) => s + src.expectedAnnualGrowthRate, 0) / incomeSources.length / 100
@@ -213,7 +226,9 @@ export function SimulationClient({ incomeSources, expenses, inflationRate, portf
   const [stocksValue, setStocksValue] = useState(Math.round(portfolioMarketValue));
   const [savingsValue, setSavingsValue] = useState(Math.round(totalSavings));
   const [savingsRate, setSavingsRate] = useState(4);
-  const [investPct, setInvestPct] = useState(100);          // % of monthly surplus invested in stocks
+  const [investPct, setInvestPct] = useState(100);
+  const [debts, setDebts] = useState<SimDebt[]>(initialDebts);
+  const [includeDebts, setIncludeDebts] = useState(true);
   const [goalTarget, setGoalTarget] = useState(0);
 
   // Historical data state
@@ -279,6 +294,7 @@ export function SimulationClient({ incomeSources, expenses, inflationRate, portf
         monthlyExpenses,
         incomeGrowthRate: incomeGrowth / 100,
         surplusInvestPct: investPct / 100,
+        debts: includeDebts ? debts : [],
         timeHorizonYears: timeHorizon,
         numSimulations: numSims,
         includeCashFlows,
@@ -292,8 +308,8 @@ export function SimulationClient({ incomeSources, expenses, inflationRate, portf
   }, [
     dataSource, historicalDrift, historicalVol, customDrift, customVol,
     scenario, stocksValue, savingsValue, savingsRate, inflationInput,
-    monthlyIncome, monthlyExpenses, incomeGrowth, investPct, timeHorizon, numSims,
-    includeCashFlows, goalTarget,
+    monthlyIncome, monthlyExpenses, incomeGrowth, investPct, debts, includeDebts,
+    timeHorizon, numSims, includeCashFlows, goalTarget,
   ]);
 
   const histogramData = result ? buildHistogram(result.finalValues, 30) : [];
@@ -538,6 +554,60 @@ export function SimulationClient({ incomeSources, expenses, inflationRate, portf
                       <span>All savings</span><span>All stocks</span>
                     </div>
                   </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Debts */}
+            <Card className="bg-zinc-900 border-zinc-800 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">Debts</h3>
+                <button
+                  onClick={() => setIncludeDebts((v) => !v)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    includeDebts ? "bg-blue-600" : "bg-zinc-700"
+                  }`}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transition-transform ${includeDebts ? "translate-x-4" : "translate-x-0"}`} />
+                </button>
+              </div>
+              {debts.length === 0 ? (
+                <p className="text-xs text-zinc-500">No debts found in budget.</p>
+              ) : (
+                <div className="space-y-2">
+                  {debts.map((d) => {
+                    const monthlyRate = d.annualRate / 12;
+                    const payoffMonths = monthlyRate > 0 && d.monthlyPayment > d.balance * monthlyRate
+                      ? Math.ceil(Math.log(d.monthlyPayment / (d.monthlyPayment - d.balance * monthlyRate)) / Math.log(1 + monthlyRate))
+                      : d.monthlyPayment > 0
+                      ? Math.ceil(d.balance / d.monthlyPayment)
+                      : null;
+                    const payoffYears = payoffMonths ? (payoffMonths / 12).toFixed(1) : "∞";
+                    return (
+                      <div key={d.id} className={`rounded-md p-2.5 space-y-1.5 border ${includeDebts ? "bg-zinc-800 border-zinc-700" : "bg-zinc-800/40 border-zinc-800 opacity-50"}`}>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-medium text-white truncate max-w-[120px]">{d.name}</span>
+                          <span className="text-xs text-red-400 font-mono">${d.balance.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] text-zinc-500">
+                          <span>{(d.annualRate * 100).toFixed(1)}% interest</span>
+                          <span>${d.monthlyPayment.toLocaleString()}/mo</span>
+                        </div>
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-zinc-500">Payoff</span>
+                          <span className="text-emerald-400">{payoffYears} yrs</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {includeDebts && (
+                    <div className="flex justify-between text-xs pt-1 border-t border-zinc-800">
+                      <span className="text-zinc-400">Total monthly payments</span>
+                      <span className="font-mono text-red-400">
+                        ${debts.reduce((s, d) => s + d.monthlyPayment, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </Card>

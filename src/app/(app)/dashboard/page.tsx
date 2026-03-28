@@ -21,14 +21,6 @@ const MARKET_CONFIG = [
   { name: "BTC/USD",    ticker: "BTC/USD", label: "BTC/USD" },
 ];
 
-const RISK_METRICS = [
-  { label: "Sharpe Ratio",      value: "1.84", note: "> 1.0 is good" },
-  { label: "Beta (vs S&P)",     value: "0.92", note: "Slightly defensive" },
-  { label: "Max Drawdown",      value: "-14.2%", note: "Last 12 months" },
-  { label: "Volatility (ann.)", value: "16.4%", note: "vs 18.1% benchmark" },
-  { label: "Alpha",             value: "+4.5%", note: "vs S&P 500" },
-  { label: "Sortino Ratio",     value: "2.31",  note: "Downside adj. return" },
-];
 
 const fmt = (n: number) =>
   n >= 1_000_000
@@ -36,6 +28,7 @@ const fmt = (n: number) =>
     : `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 const fmtPct = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
+const fmtPctRound = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
 
 function DeltaBadge({ value }: { value: number }) {
   const pos = value >= 0;
@@ -142,18 +135,21 @@ export default function DashboardPage() {
               <CardTitle className="text-xs font-medium text-zinc-400">Ann. Return vs SPY</CardTitle>
             </CardHeader>
             <CardContent>
-              {stats ? (
+              {stats?.annualizedReturn != null ? (
                 <>
-                  <p className="text-2xl font-bold text-blue-400">{fmtPct(stats.annualizedReturn)}</p>
+                  <p className="text-2xl font-bold text-blue-400">{fmtPctRound(stats.annualizedReturn)}</p>
                   <p className="text-xs text-zinc-500 mt-1">
                     <span className={stats.annualizedReturn >= spyDayPct ? "text-emerald-400" : "text-red-400"}>
-                      {fmtPct(stats.annualizedReturn - spyDayPct)} alpha
+                      {fmtPctRound(stats.annualizedReturn - spyDayPct)} alpha
                     </span>
                     {" "}vs SPY {fmtPct(spyDayPct)} today
                   </p>
                 </>
               ) : (
-                <p className="text-2xl font-bold text-white">—</p>
+                <>
+                  <p className="text-2xl font-bold text-white">—</p>
+                  <p className="text-xs text-zinc-500 mt-1">Need 30+ days of history</p>
+                </>
               )}
             </CardContent>
           </Card>
@@ -282,23 +278,6 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* ── Risk metrics ── */}
-        <Card className="bg-zinc-900 border-zinc-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-white">Risk Metrics</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              {RISK_METRICS.map((m) => (
-                <div key={m.label} className="space-y-1">
-                  <p className="text-xs text-zinc-500">{m.label}</p>
-                  <p className="text-xl font-bold text-white">{m.value}</p>
-                  <p className="text-[10px] text-zinc-600">{m.note}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
       </main>
     </div>
