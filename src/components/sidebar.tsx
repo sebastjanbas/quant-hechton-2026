@@ -4,10 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  TrendingUp,
-  BarChart3,
   Flame,
-  LineChart,
   ShieldAlert,
   Wallet,
   Settings,
@@ -17,9 +14,6 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Budget", href: "/budget", icon: Wallet },
-  { label: "Portfolio", href: "/portfolio", icon: BarChart3 },
-  { label: "Equities", href: "/equities", icon: TrendingUp },
-  { label: "Fixed Income", href: "/fixed-income", icon: LineChart },
   { label: "Inflation", href: "/inflation", icon: Flame },
   { label: "Risk", href: "/risk", icon: ShieldAlert },
 ];
