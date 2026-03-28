@@ -9,19 +9,6 @@ export default async function BudgetPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   const userId = session!.user.id;
 
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS subscriptions (
-      id TEXT PRIMARY KEY,
-      "userId" TEXT NOT NULL,
-      name TEXT NOT NULL,
-      amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-      "billingCycle" TEXT NOT NULL DEFAULT 'monthly',
-      category TEXT NOT NULL DEFAULT 'other',
-      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
   const [incomeRes, expenseRes, savingsRes, debtRes, settingsRes, subscriptionRes] = await Promise.all([
     db.query(
       `SELECT id, name, amount, frequency, type, "isActive", "expectedAnnualGrowthRate"

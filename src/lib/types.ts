@@ -34,6 +34,14 @@ export interface SavingsAccount {
 }
 
 
+export interface SimDebt {
+  id: string;
+  name: string;
+  balance: number;
+  annualRate: number;    // as decimal, e.g. 0.03 = 3%
+  monthlyPayment: number;
+}
+
 export interface SimConfig {
   initialStocksValue: number;   // current market value of holdings — subject to GBM
   initialSavingsValue: number;  // savings account balances — grows at fixed rate
@@ -45,6 +53,7 @@ export interface SimConfig {
   monthlyExpenses: number;
   incomeGrowthRate: number;     // as decimal
   surplusInvestPct: number;     // 0–1: fraction of monthly surplus invested in stocks (rest goes to savings)
+  debts: SimDebt[];             // debt obligations deducted from surplus each month until paid off
   timeHorizonYears: number;
   numSimulations: number;
   includeCashFlows: boolean;
