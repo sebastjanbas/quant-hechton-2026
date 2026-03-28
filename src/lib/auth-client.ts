@@ -20,5 +20,4 @@ export const validateEmail = (email: string) => {
 
 }
 
-
 export const { signIn, signUp, signOut, useSession } = authClient;
